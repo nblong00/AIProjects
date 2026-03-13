@@ -1,10 +1,9 @@
 from dotenv import load_dotenv
 from pydantic import BaseModel
-from langchain_anthropic import ChatAnthropic
-from langchain_core.prompts import ChatPromptTemplate
-from langchain_core.output_parsers import PydanticOutputParser
-from langchain_classic.agents import create_tool_calling_agent, AgentExecutor
+from langchain.agents import create_agent
+from langchain.chat_models import init_chat_model
 from tools import search_tool, wiki_tool, save_tool
+from utils import clean_api_text
 
 load_dotenv()
 
@@ -14,43 +13,41 @@ class ResearchResponse(BaseModel):
     sources: list[str]
     tools_used: list[str]
 
-llm = ChatAnthropic(model='claude-sonnet-4-5')
-parser = PydanticOutputParser(pydantic_object=ResearchResponse)
-prompt = ChatPromptTemplate.from_messages(
-    [
-        (
-            "system",
-            """
-            You are a research assistant that will help generate a research paper.
-            Answer the user query and use neccessary tools. 
-            Wrap the output in this format and provide no other text.
-            Always save output to file.
-            Always include sources and tools used in saved output.\n{format_instructions}
-            """,
-        ),
-        ("placeholder", "{chat_history}"),
-        ("human", "{query}"),
-        ("placeholder", "{agent_scratchpad}"),
-    ]
-).partial(format_instructions=parser.get_format_instructions())
+active_tools = [search_tool, wiki_tool, save_tool]
+model = init_chat_model('anthropic:claude-sonnet-4-5-20250929')
 
-tools = [search_tool, wiki_tool, save_tool]
-agent = create_tool_calling_agent(
-    llm=llm,
-    prompt=prompt,
-    tools=tools
+
+agent = create_agent(
+    model=model,
+    tools=active_tools,
+    system_prompt="""
+        You are a research assistant that will help generate a research paper.
+        Answer the user query and use necessary tools.
+        Always save output to a log file.
+        Always include sources and tools used in saved output and what the sources and tools were used for.
+        Wrap your final answer in this JSON format exactly as shown (without ```json at the beginning or ``` at the end):
+        {
+          "topic": "<topic>",
+          "output": "<full formatted research output>",
+          "sources": ["<source1>", ...],
+          "tools_used": ["<tool1>", ...]
+        }
+        Do not print your final answer to the user. I will handle it based on the formatting of your final answer.
+    """,
 )
 
-agent_executor = AgentExecutor(agent=agent, tools=tools, verbose=True)
 query = input('What can I help you research? ')
-raw_response = agent_executor.invoke({'query': query})
+response = agent.invoke({"messages": [("human", query)]})
+# print(response)
 
+raw_output = response["messages"][-1].content
 try:
-    structured_response = parser.parse(raw_response.get('output')[0]['text'])
+    structured_response = ResearchResponse.model_validate_json(raw_output)
 except Exception as e:
-    print('Error parsing response', e, 'Raw Respense - ', raw_response)
+    print("Error parsing response:", e)
+    print("Raw response:", raw_output)
 
-print(structured_response.output)
-# Move the below into utils.py to include in output response.
-print(structured_response.tools_used)
-print(structured_response.sources)
+print(f'\n{structured_response.topic}\n')
+print(clean_api_text(structured_response.output))
+print('\nTools used:', structured_response.tools_used)
+print('\nSources:', structured_response.sources)
