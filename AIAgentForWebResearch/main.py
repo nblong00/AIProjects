@@ -8,6 +8,7 @@ from utils import clean_api_text
 
 load_dotenv()
 
+
 class ResearchResponse(BaseModel):
     topic: str
     output: str
@@ -21,7 +22,8 @@ model = init_chat_model('anthropic:claude-sonnet-4-5-20250929', temperature=0.1)
 agent = create_agent(
     model=model,
     tools=active_tools,
-    system_prompt="""
+    system_prompt=
+        """
         You are a research assistant that will help generate a research paper.
         Answer the user query and use necessary tools.
         Always save output to a log file.
@@ -34,12 +36,12 @@ agent = create_agent(
           "tools_used": ["<tool1>", ...]
         }
         Do not print your final answer to the user. I will handle it based on the formatting of your final answer.
-    """,
+        """,
 )
 
 query = input('What can I help you research? ')
 raw_output = None
-for chunk in agent.stream({"messages": [("human", query)]}, stream_mode="updates", version="v2"):
+for chunk in agent.stream({"messages":[("human", query)]}, stream_mode="updates", version="v2"):
     if chunk["type"] == "updates":
         for step, data in chunk["data"].items():
             for user in data["messages"]:
@@ -47,8 +49,14 @@ for chunk in agent.stream({"messages": [("human", query)]}, stream_mode="updates
                     if isinstance(user.content, list):
                         for block in user.content:
                             if block.get("type") == "text" and block["text"]:
-                                print(f"\nClaude: {block['text']}")
-                    print(f"Using tools: {[tc['name'] for tc in user.tool_calls]}")
+                                print(f"\nClaude: {block['text']}\n")
+                    for tc in user.tool_calls:
+                        if tc['name'] != 'save_tool' and tc['name'] == 'wikipedia':
+                            print(f'Using {tc['name'].capitalize()} to search for: {tc['args']['query']}')
+                        elif tc['name'] != 'save_tool':
+                            print(f'Using DuckDuckGo (Search Engine) to search for: {tc['args']['query']}')
+                        else:
+                            print(f'Using Output Exporter to save formatted output to text document.\n')
                 elif isinstance(user, AIMessage) and not user.tool_calls:
                     raw_output = user.content
 
@@ -58,6 +66,7 @@ except Exception as e:
     print("Error parsing response:", e)
     print("Raw response:", raw_output)
 
+input('Research complete. Press ENTER to see LLM response.')
 print(f'\n------------------------------------\n')
 print(clean_api_text(structured_response.output))
 print('\nTools used:', structured_response.tools_used)
