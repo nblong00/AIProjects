@@ -15,7 +15,7 @@ class ResearchResponse(BaseModel):
     tools_used: list[str]
 
 active_tools = [search_tool, wiki_tool, save_tool]
-model = init_chat_model('anthropic:claude-sonnet-4-5-20250929')
+model = init_chat_model('anthropic:claude-sonnet-4-5-20250929', temperature=0.1)
 
 
 agent = create_agent(
@@ -39,18 +39,18 @@ agent = create_agent(
 
 query = input('What can I help you research? ')
 raw_output = None
-for chunk in agent.stream({"messages": [("human", query)]}, stream_mode="updates"):
-    for node, state in chunk.items():
-        for msg in state.get("messages", []):
-            if isinstance(msg, AIMessage) and msg.tool_calls:
-                # Show thinking text if present (Claude often adds reasoning before tool calls)
-                if isinstance(msg.content, list):
-                    for block in msg.content:
-                        if block.get("type") == "text" and block["text"]:
-                            print(f"\nThinking: {block['text']}")
-                print(f"Using tools: {[tc['name'] for tc in msg.tool_calls]}")
-            elif isinstance(msg, AIMessage) and not msg.tool_calls:
-                raw_output = msg.content
+for chunk in agent.stream({"messages": [("human", query)]}, stream_mode="updates", version="v2"):
+    if chunk["type"] == "updates":
+        for step, data in chunk["data"].items():
+            for user in data["messages"]:
+                if isinstance(user, AIMessage) and user.tool_calls:
+                    if isinstance(user.content, list):
+                        for block in user.content:
+                            if block.get("type") == "text" and block["text"]:
+                                print(f"\nClaude: {block['text']}")
+                    print(f"Using tools: {[tc['name'] for tc in user.tool_calls]}")
+                elif isinstance(user, AIMessage) and not user.tool_calls:
+                    raw_output = user.content
 
 try:
     structured_response = ResearchResponse.model_validate_json(raw_output)
