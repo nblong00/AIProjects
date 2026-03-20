@@ -2,9 +2,10 @@ from dotenv import load_dotenv
 from pydantic import BaseModel
 from langchain.agents import create_agent
 from langchain.chat_models import init_chat_model
-from langchain_core.messages import AIMessage
+from langchain_core.messages import AIMessage, ToolMessage
 from tools import search_tool, wiki_tool, save_tool
 from utils import clean_api_text
+import threading
 
 load_dotenv()
 
@@ -56,8 +57,14 @@ for chunk in agent.stream({"messages":[("human", query)]}, stream_mode="updates"
                         elif tc['name'] != 'save_tool':
                             print(f'Using DuckDuckGo (Search Engine) to search for: {tc['args']['query']}')
                         else:
-                            print(f'Using Output Exporter to save formatted output to text document.\n')
+                            print(f'Claude: Using Output Exporter to save formatted output to text document.\n')
+                elif isinstance(user, ToolMessage) and user.name == 'save_tool':
+                    print(f'Claude: {user.content}\n')
+                    timer = threading.Timer(8.0, lambda: print("Claude: Wrapping up operations...\n"))
+                    timer.start()
                 elif isinstance(user, AIMessage) and not user.tool_calls:
+                    if timer:
+                        timer.cancel()
                     raw_output = user.content
 
 try:
