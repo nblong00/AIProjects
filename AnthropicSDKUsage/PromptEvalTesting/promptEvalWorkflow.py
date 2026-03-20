@@ -1,39 +1,9 @@
-from anthropic import Anthropic
-from dotenv import load_dotenv
-import json
-
-load_dotenv()
-client = Anthropic()
-model = 'claude-sonnet-4-5'
+from helper import add_ai_message, add_user_message, chat
+from grader import grade_by_model, grade_syntax
+from statistics import mean
 
 
-def add_user_message(messages, text):
-    user_message = {"role": "user", "content": text}
-    messages.append(user_message)
-
-
-def add_ai_message(messages, text):
-    ai_message = {"role": "assistant", "content": text}
-    messages.append(ai_message)
-
-
-def chat(messages, system=None, temperature=1.0, stop_sequences=[]):
-    params = {
-        "model": model,
-        "max_tokens": 1000,
-        "messages": messages,
-        "temperature": temperature,
-        "stop_sequences": stop_sequences,
-    }
-
-    if system:
-        params["system"] = system
-
-    message = client.messages.create(**params)
-    return message.content[0].text
-
-
-def generate_dataset():
+def generate_dataset_ai():
     prompt = """
             Generate a evaluation dataset for a prompt evaluation. The dataset will be used to evaluate prompts
             that generate Python, JSON, or Regex specifically for AWS-related tasks. Generate an array of JSON objects,
@@ -44,6 +14,8 @@ def generate_dataset():
             [
                 {
                     "task": "Description of task",
+                    "format": "json", or "python" or "regex",
+                    "solution_criteria": "Key criteria for evaluating the solution"
                 },
                 ...additional
             ]
@@ -54,6 +26,7 @@ def generate_dataset():
 
             Please generate 3 objects.
             """
+    
     return prompt
 
 
@@ -61,23 +34,32 @@ def run_prompt(testcase):
     prompt = f"""
             Please solve the following task: 
             {testcase["task"]}
+            * Respond only with Python, JSON, or a plan Regex. 
+            * Do not add any comments or commentary or explanation.
             """
     messages = []
     add_user_message(messages, prompt)
-    output = chat(messages)
+    add_ai_message(messages, "```code")
+    output = chat(messages, stop_sequences=["```"])
+
     return output
 
 
 def run_test_case(test_case):
     output = run_prompt(test_case)
 
-    #TO DO
-    score = 10
+    model_grade = grade_by_model(test_case, output)
+    model_score = model_grade["score"]
+    reasoning = model_grade["reasoning"]
+
+    syntax_score = grade_syntax(output, test_case)
+    score = (model_score + syntax_score) / 2
 
     return {
         "output": output,
         "test_case": test_case,
-        "score": score
+        "score": score,
+        "reasoning": reasoning
     }
 
 
@@ -86,22 +68,8 @@ def run_eval(dataset):
     for test_case in dataset:
         result = run_test_case(test_case)
         results.append(result)
+
+    average_score = mean([result["score"] for result in results])
+    print(average_score)
+
     return results
-
-
-def export_results(answer):
-    with open("dataset.json", "w") as f:
-        json.dump(answer, f, indent=2)
-
-
-def main():
-    messages = []
-    add_user_message(messages, generate_dataset())
-    add_ai_message(messages, "```json")
-    answer = json.loads(chat(messages, stop_sequences=["```"]))
-    results = run_eval(answer)
-    print(json.dumps(results, indent=2))
-    export_results(results)
-        
-
-main()
